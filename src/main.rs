@@ -87,35 +87,6 @@ where
 fn show(bs: &[u8]) -> String {
     String::from_utf8_lossy(bs).into_owned()
 }
-
-fn main() {
-    let anagrams = anagram_groups();
-    let anagram_map = anagram_map(&anagrams);
-    let anagram_reps = anagram_map.keys().copied().collect_vec();
-    let graph = build_graph(anagram_reps);
-    eprintln!("Done generating map!");
-
-    let sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
-        .par_iter()
-        .flat_map(|(w, nbs)| {
-            let mut sols = vec![];
-            let mut init = Sentence::<{ SLEN * WLEN }>::new();
-            init.add(*w);
-            find_sols(&mut sols, &graph, init, *w, nbs);
-            sols
-        })
-        .collect();
-
-    let mut sols_with_agrams = vec![];
-    for sol in sols {
-        expand_anagrams(&mut sols_with_agrams, &anagram_map, sol);
-    }
-
-    for sol in sols_with_agrams.iter().sorted() {
-        println!("{}", sol.as_string());
-    }
-}
-
 fn expand_anagrams<const N: usize>(
     sols: &mut Vec<Sentence<N>>,
     anagram_map: &FxHashMap<Word, Vec<Word>>,
@@ -252,4 +223,32 @@ fn word_chars_sorted(w: Word) -> u64 {
         .sorted()
         .enumerate()
         .fold(0u64, |out, (i, b)| out | ((*b as u64) << (i * 8)))
+}
+
+fn main() {
+    let anagrams = anagram_groups();
+    let anagram_map = anagram_map(&anagrams);
+    let anagram_reps = anagram_map.keys().copied().collect_vec();
+    let graph = build_graph(anagram_reps);
+    eprintln!("Done generating map!");
+
+    let sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
+        .par_iter()
+        .flat_map(|(w, nbs)| {
+            let mut sols = vec![];
+            let mut init = Sentence::<{ SLEN * WLEN }>::new();
+            init.add(*w);
+            find_sols(&mut sols, &graph, init, *w, nbs);
+            sols
+        })
+        .collect();
+
+    let mut sols_with_agrams = vec![];
+    for sol in sols {
+        expand_anagrams(&mut sols_with_agrams, &anagram_map, sol);
+    }
+
+    for sol in sols_with_agrams.iter().sorted() {
+        println!("{}", sol.as_string());
+    }
 }
