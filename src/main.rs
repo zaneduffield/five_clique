@@ -226,12 +226,17 @@ fn word_chars_sorted(w: Word) -> u64 {
 }
 
 fn main() {
+    eprint!("Generating anagram maps...");
     let anagrams = anagram_groups();
     let anagram_map = anagram_map(&anagrams);
     let anagram_reps = anagram_map.keys().copied().collect_vec();
-    let graph = build_graph(anagram_reps);
-    eprintln!("Done generating map!");
+    eprintln!(" done!");
 
+    eprint!("Generating adjacency matrix...");
+    let graph = build_graph(anagram_reps);
+    eprintln!(" done!");
+
+    eprint!("Finding solutions modulo anagram...");
     let sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
         .par_iter()
         .flat_map(|(w, nbs)| {
@@ -242,11 +247,14 @@ fn main() {
             sols
         })
         .collect();
+    eprintln!(" done!");
 
+    eprint!("Expanding anagram solutions...");
     let mut sols_with_agrams = vec![];
     for sol in sols {
         expand_anagrams(&mut sols_with_agrams, &anagram_map, sol);
     }
+    eprintln!(" done!");
 
     for sol in sols_with_agrams.iter().sorted() {
         println!("{}", sol.as_string());
