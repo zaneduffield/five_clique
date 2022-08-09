@@ -73,6 +73,17 @@ impl<const N: usize> Sentence<N> {
     }
 }
 
+impl<I, const N: usize> From<I> for Sentence<N>
+where
+    I: IntoIterator<Item = Word>,
+{
+    fn from(words: I) -> Self {
+        let mut out = Self::new();
+        words.into_iter().for_each(|w| out.add(w));
+        out
+    }
+}
+
 fn show(bs: &[u8]) -> String {
     String::from_utf8_lossy(bs).into_owned()
 }
@@ -84,7 +95,7 @@ fn main() {
     let graph = build_graph(anagram_reps);
     eprintln!("Done generating map!");
 
-    let mut sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
+    let sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
         .par_iter()
         .flat_map(|(w, nbs)| {
             let mut sols = vec![];
@@ -95,13 +106,12 @@ fn main() {
         })
         .collect();
 
-    let mut ana_sols = vec![];
-    for sol in &sols {
-        expand_anagrams(&mut ana_sols, &anagram_map, *sol);
+    let mut sols_with_agrams = vec![];
+    for sol in sols {
+        expand_anagrams(&mut sols_with_agrams, &anagram_map, sol);
     }
-    sols.extend(ana_sols);
 
-    for sol in sols.iter().sorted() {
+    for sol in sols_with_agrams.iter().sorted() {
         println!("{}", sol.as_string());
     }
 }
@@ -119,6 +129,21 @@ fn expand_anagrams<const N: usize>(
         .collect_vec();
 
     loop {
+        /*
+        The idea is to maintain a vec of indexes into the anagram vector, so that a_idx[i] is the index into agrams[i].
+        We want to find all permutations of anagrams, each of which corresponds to a value for a_idx, so we just count
+        through all the possible values for a_idx by 'ticking' the first index, and let it overflow (or carry-over)
+        into the next indexes when necessary. We stop when the last index overflows.
+        */
+        let sentence: Sentence<N> = a_idxs
+            .iter()
+            .enumerate()
+            .map(|(i, idx)| agrams[i][*idx])
+            .sorted()
+            .into();
+
+        sols.push(sentence);
+
         let mut i = 0;
         a_idxs[0] += 1;
         while a_idxs[i] >= agrams[i].len() {
@@ -129,16 +154,6 @@ fn expand_anagrams<const N: usize>(
             }
             a_idxs[i] += 1;
         }
-
-        let mut sentence = Sentence::<N>::new();
-        a_idxs
-            .iter()
-            .enumerate()
-            .map(|(i, idx)| agrams[i][*idx])
-            .sorted()
-            .for_each(|w| sentence.add(w));
-
-        sols.push(sentence);
     }
 }
 
