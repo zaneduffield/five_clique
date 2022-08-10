@@ -186,10 +186,13 @@ fn anagram_groups() -> Vec<Vec<Word>> {
     include_bytes!("words_five.txt")
         .lines()
         .map(|line| {
-            line.expect("failed to read line")
+            let mut w: Word = line
+                .expect("failed to read line")
                 .as_bytes()
                 .try_into()
-                .expect("line is not the right length in bytes")
+                .expect("line is not the right length in bytes");
+            w.make_ascii_lowercase();
+            w
         })
         .filter(|w| distinct_letters(*w))
         .sorted_unstable_by_key(|w| word_chars_sorted(*w))
