@@ -87,6 +87,7 @@ where
 fn show(bs: &[u8]) -> String {
     String::from_utf8_lossy(bs).into_owned()
 }
+
 fn expand_anagrams<const N: usize>(
     sols: &mut Vec<Sentence<N>>,
     anagram_map: &FxHashMap<Word, Vec<Word>>,
@@ -105,6 +106,8 @@ fn expand_anagrams<const N: usize>(
         We want to find all permutations of anagrams, each of which corresponds to a value for a_idx, so we just count
         through all the possible values for a_idx by 'ticking' the first index, and let it overflow (or carry-over)
         into the next indexes when necessary. We stop when the last index overflows.
+
+        We could also do it with five nested for-loops, but where's the fun in that? Also, it wouldn't generalise.
         */
         let sentence: Sentence<N> = a_idxs
             .iter()
