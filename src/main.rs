@@ -69,7 +69,7 @@ impl<const N: usize> Sentence<N> {
     }
 
     fn as_string(&self) -> String {
-        self.words().iter().map(|w| show(w)).join(" ")
+        self.words().into_iter().map(show).join(" ")
     }
 }
 
@@ -84,8 +84,8 @@ where
     }
 }
 
-fn show(bs: &[u8]) -> String {
-    String::from_utf8_lossy(bs).into_owned()
+fn show(w: Word) -> String {
+    String::from_utf8_lossy(&w).into_owned()
 }
 
 fn expand_anagrams<const N: usize>(
