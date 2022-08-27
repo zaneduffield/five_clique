@@ -14,7 +14,7 @@ struct LowerAsciiCharset(u32);
 impl From<Word> for LowerAsciiCharset {
     fn from(w: Word) -> Self {
         let mut chars = 0;
-        w.iter().for_each(|b| chars |= 1 << (b - b'a'));
+        w.iter().for_each(|b| chars |= 1 << b);
         Self(chars)
     }
 }
@@ -25,11 +25,11 @@ impl LowerAsciiCharset {
     }
 
     fn intersects(&self, w: Word) -> bool {
-        w.iter().any(|b| self.0 & (1 << (b - b'a')) != 0)
+        w.iter().any(|b| self.0 & (1 << b) != 0)
     }
 
     fn add(&mut self, b: u8) {
-        self.0 |= 1 << (b - b'a');
+        self.0 |= 1 << b;
     }
 }
 
@@ -84,7 +84,8 @@ where
     }
 }
 
-fn show(w: Word) -> String {
+fn show(mut w: Word) -> String {
+    w.iter_mut().for_each(|b| *b += b'a');
     String::from_utf8_lossy(&w).into_owned()
 }
 
@@ -138,18 +139,14 @@ fn find_sols<const N: usize>(
     last: Word,
     nbs: &[Word],
 ) {
-    let pos = match nbs.binary_search(&last) {
-        Ok(_) => nbs.len(),
-        Err(i) => i,
-    };
-
+    let pos = nbs.partition_point(|nb| nb[0] < last[0]);
     for nb in &nbs[pos..] {
         if cur_sol.shares_chars_with(*nb) {
             continue;
         }
         let mut sol = cur_sol;
         sol.add(*nb);
-        if sol.len as usize >= N / WLEN {
+        if sol.len >= (N / WLEN) as u8 {
             sols.push(sol);
         } else {
             find_sols(
@@ -192,6 +189,11 @@ fn anagram_groups() -> Vec<Vec<Word>> {
                 .try_into()
                 .expect("line is not the right length in bytes");
             w.make_ascii_lowercase();
+
+            // It's more efficient to shift all the characters to be based on 'a' now and then undo it right at the end.
+            // Otherwise we would be doing this shift in the hottest path of the program (`Sentence<N>::shares_chars_with`)
+            w.iter_mut().for_each(|b| *b -= b'a');
+
             w
         })
         .filter(|w| distinct_letters(*w))
@@ -213,7 +215,7 @@ fn anagram_map(anagram_groups: &[Vec<Word>]) -> FxHashMap<Word, Vec<Word>> {
 fn distinct_letters(w: Word) -> bool {
     let mut h = 0u64;
     w.iter().all(|b| {
-        let x = 1 << (b - b'a');
+        let x = 1 << b;
         if x & h != 0 {
             false
         } else {
