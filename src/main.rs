@@ -8,6 +8,10 @@ const WLEN: usize = 5;
 const SLEN: usize = 5;
 
 type Word = [u8; WLEN];
+struct WordWithCharset {
+    word: Word,
+    charset: LowerAsciiCharset,
+}
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 struct LowerAsciiCharset(u32);
@@ -24,8 +28,8 @@ impl LowerAsciiCharset {
         LowerAsciiCharset(0)
     }
 
-    fn intersects(&self, w: Word) -> bool {
-        w.iter().any(|b| self.0 & (1 << b) != 0)
+    fn intersects(&self, other: Self) -> bool {
+        self.0 & other.0 != 0
     }
 
     fn add(&mut self, b: u8) {
@@ -57,8 +61,8 @@ impl<const N: usize> Sentence<N> {
         w.iter().for_each(|b| self.charset.add(*b));
     }
 
-    fn shares_chars_with(&self, w: Word) -> bool {
-        self.charset.intersects(w)
+    fn shares_chars_with(&self, c: LowerAsciiCharset) -> bool {
+        self.charset.intersects(c)
     }
 
     fn words(&self) -> Vec<Word> {
@@ -137,15 +141,15 @@ fn find_sols<const N: usize>(
     graph: &WordGraph,
     cur_sol: Sentence<N>,
     last: Word,
-    nbs: &[Word],
+    nbs: &[WordWithCharset],
 ) {
-    let pos = nbs.partition_point(|nb| nb[0] < last[0]);
+    let pos = nbs.partition_point(|nb| nb.word[0] < last[0]);
     for nb in &nbs[pos..] {
-        if cur_sol.shares_chars_with(*nb) {
+        if cur_sol.shares_chars_with(nb.charset) {
             continue;
         }
         let mut sol = cur_sol;
-        sol.add(*nb);
+        sol.add(nb.word);
         if sol.len >= (N / WLEN) as u8 {
             sols.push(sol);
         } else {
@@ -153,14 +157,14 @@ fn find_sols<const N: usize>(
                 sols,
                 graph,
                 sol,
-                *nb,
-                graph.get(nb).expect("word not found in graph"),
+                nb.word,
+                graph.get(&nb.word).expect("word not found in graph"),
             );
         }
     }
 }
 
-type WordGraph = FxHashMap<Word, Vec<Word>>;
+type WordGraph = FxHashMap<Word, Vec<WordWithCharset>>;
 fn build_graph(words: Vec<Word>) -> WordGraph {
     words
         .par_iter()
@@ -171,8 +175,12 @@ fn build_graph(words: Vec<Word>) -> WordGraph {
                 words
                     .iter()
                     .copied()
-                    .filter(|w2| !charset.intersects(*w2))
-                    .sorted()
+                    .map(|w| WordWithCharset {
+                        word: w,
+                        charset: LowerAsciiCharset::from(w),
+                    })
+                    .filter(|w2| !charset.intersects(w2.charset))
+                    .sorted_by_key(|w| w.word)
                     .collect(),
             )
         })
