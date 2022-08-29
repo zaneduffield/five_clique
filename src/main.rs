@@ -1,30 +1,21 @@
+#![feature(stdsimd)]
+#![feature(stdarch)]
+
 use std::io::BufRead;
 
 use itertools::Itertools;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
+use core::arch::x86_64::*;
+
 const WLEN: usize = 5;
 const SLEN: usize = 5;
 
 type Word = [u8; WLEN];
-#[derive(Clone, Copy)]
-struct WordWithCharset {
-    word: Word,
-    charset: LowerAsciiCharset,
-}
-
-impl From<Word> for WordWithCharset {
-    fn from(word: Word) -> Self {
-        WordWithCharset {
-            word,
-            charset: word.into(),
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
-struct LowerAsciiCharset(u32);
+struct LowerAsciiCharset(i32);
 impl From<Word> for LowerAsciiCharset {
     fn from(w: Word) -> Self {
         let mut chars = 0;
@@ -33,17 +24,53 @@ impl From<Word> for LowerAsciiCharset {
     }
 }
 
+fn hsum_epi32_avx(x: __m128i) -> i32
+{
+    unsafe {
+        let hi64  = _mm_unpackhi_epi64(x, x);           // 3-operand non-destructive AVX lets us save a byte without needing a movdqa
+        let sum64 = _mm_or_epi32(hi64, x);
+        let hi32  = _mm_shuffle_epi32(sum64, _MM_SHUFFLE(2, 3, 0, 1));    // Swap the low two elements
+        let sum32 = _mm_or_epi32(sum64, hi32);
+        _mm_cvtsi128_si32(sum32)       // movd
+    }
+}
+
+// only needs AVX2
+fn hsum_8x32(v: __m256i) -> i32
+{
+    unsafe {
+        let sum128 = _mm_or_epi32( 
+                    _mm256_castsi256_si128(v),
+                    _mm256_extracti128_si256(v, 1));
+        hsum_epi32_avx(sum128)
+    }
+}
+
 impl LowerAsciiCharset {
     fn default() -> Self {
         LowerAsciiCharset(0)
     }
 
-    fn intersects(&self, other: Self) -> bool {
-        self.0 & other.0 != 0
-    }
+    fn intersects(&self, w: Word) -> bool {
+        unsafe {
+            let w_ptr = w.as_ptr();
+            let bytes = _mm_loadu_epi8(w_ptr);
+            let ones = _mm256_set_epi32(
+                1,
+                1,
+                1,
+                1,
+                1,
+                0,0,0
+            );
 
-    fn union(&mut self, other: Self) {
-        self.0 |= other.0
+            let shifted = _mm256_sllv_epi32(ones, bytes);
+            let charsets = _mm256_set1_epi32(self.0);
+            let masks = _mm256_and_si256(charsets, shifted);
+
+            _mm256_testz_si256(masks, masks) == 0
+            // hsum_8x32(masks) != 0
+        }
     }
 
     fn add(&mut self, b: u8) {
@@ -67,24 +94,16 @@ impl<const N: usize> Sentence<N> {
         }
     }
 
-    fn add(&mut self, w: WordWithCharset) {
-        let i = (self.len as usize) * WLEN;
-        self.words[i..i + WLEN].copy_from_slice(&w.word);
-        self.len += 1;
-
-        self.charset.union(w.charset);
-    }
-
-    fn add2(&mut self, w: Word, c: LowerAsciiCharset) {
+    fn add(&mut self, w: Word) {
         let i = (self.len as usize) * WLEN;
         self.words[i..i + WLEN].copy_from_slice(&w);
         self.len += 1;
 
-        self.charset.union(c);
+        w.iter().for_each(|b| self.charset.add(*b));
     }
 
-    fn shares_chars_with(&self, c: LowerAsciiCharset) -> bool {
-        self.charset.intersects(c)
+    fn shares_chars_with(&self, w: Word) -> bool {
+        self.charset.intersects(w)
     }
 
     fn words(&self) -> Vec<Word> {
@@ -105,7 +124,7 @@ where
 {
     fn from(words: I) -> Self {
         let mut out = Self::new();
-        words.into_iter().for_each(|w| out.add(w.into()));
+        words.into_iter().for_each(|w| out.add(w));
         out
     }
 }
@@ -163,11 +182,11 @@ fn find_sols<const N: usize>(
     graph: &WordGraph,
     cur_sol: Sentence<N>,
     last: Word,
-    nbs: &[WordWithCharset],
+    nbs: &[Word],
 ) {
-    let pos = nbs.partition_point(|nb| nb.word[0] < last[0]);
+    let pos = nbs.partition_point(|nb| nb[0] < last[0]);
     for nb in &nbs[pos..] {
-        if cur_sol.shares_chars_with(nb.charset) {
+        if cur_sol.shares_chars_with(*nb) {
             continue;
         }
         let mut sol = cur_sol;
@@ -179,14 +198,14 @@ fn find_sols<const N: usize>(
                 sols,
                 graph,
                 sol,
-                nb.word,
-                graph.get(&nb.word).expect("word not found in graph"),
+                *nb,
+                graph.get(nb).expect("word not found in graph"),
             );
         }
     }
 }
 
-type WordGraph = FxHashMap<Word, Vec<WordWithCharset>>;
+type WordGraph = FxHashMap<Word, Vec<Word>>;
 fn build_graph(words: Vec<Word>) -> WordGraph {
     words
         .par_iter()
@@ -197,12 +216,8 @@ fn build_graph(words: Vec<Word>) -> WordGraph {
                 words
                     .iter()
                     .copied()
-                    .map(|w| WordWithCharset {
-                        word: w,
-                        charset: LowerAsciiCharset::from(w),
-                    })
-                    .filter(|w2| !charset.intersects(w2.charset))
-                    .sorted_by_key(|w| w.word)
+                    .filter(|w2| !charset.intersects(*w2))
+                    .sorted()
                     .collect(),
             )
         })
@@ -280,7 +295,7 @@ fn main() {
         .flat_map(|(w, nbs)| {
             let mut sols = vec![];
             let mut init = Sentence::<{ SLEN * WLEN }>::new();
-            init.add((*w).into());
+            init.add(*w);
             find_sols(&mut sols, &graph, init, *w, nbs);
             sols
         })
