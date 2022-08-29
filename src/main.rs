@@ -8,9 +8,19 @@ const WLEN: usize = 5;
 const SLEN: usize = 5;
 
 type Word = [u8; WLEN];
+#[derive(Clone, Copy)]
 struct WordWithCharset {
     word: Word,
     charset: LowerAsciiCharset,
+}
+
+impl From<Word> for WordWithCharset {
+    fn from(word: Word) -> Self {
+        WordWithCharset {
+            word,
+            charset: word.into(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
@@ -30,6 +40,10 @@ impl LowerAsciiCharset {
 
     fn intersects(&self, other: Self) -> bool {
         self.0 & other.0 != 0
+    }
+
+    fn union(&mut self, other: Self) {
+        self.0 |= other.0
     }
 
     fn add(&mut self, b: u8) {
@@ -53,12 +67,20 @@ impl<const N: usize> Sentence<N> {
         }
     }
 
-    fn add(&mut self, w: Word) {
+    fn add(&mut self, w: WordWithCharset) {
+        let i = (self.len as usize) * WLEN;
+        self.words[i..i + WLEN].copy_from_slice(&w.word);
+        self.len += 1;
+
+        self.charset.union(w.charset);
+    }
+
+    fn add2(&mut self, w: Word, c: LowerAsciiCharset) {
         let i = (self.len as usize) * WLEN;
         self.words[i..i + WLEN].copy_from_slice(&w);
         self.len += 1;
 
-        w.iter().for_each(|b| self.charset.add(*b));
+        self.charset.union(c);
     }
 
     fn shares_chars_with(&self, c: LowerAsciiCharset) -> bool {
@@ -83,7 +105,7 @@ where
 {
     fn from(words: I) -> Self {
         let mut out = Self::new();
-        words.into_iter().for_each(|w| out.add(w));
+        words.into_iter().for_each(|w| out.add(w.into()));
         out
     }
 }
@@ -149,7 +171,7 @@ fn find_sols<const N: usize>(
             continue;
         }
         let mut sol = cur_sol;
-        sol.add(nb.word);
+        sol.add(*nb);
         if sol.len >= (N / WLEN) as u8 {
             sols.push(sol);
         } else {
@@ -258,7 +280,7 @@ fn main() {
         .flat_map(|(w, nbs)| {
             let mut sols = vec![];
             let mut init = Sentence::<{ SLEN * WLEN }>::new();
-            init.add(*w);
+            init.add((*w).into());
             find_sols(&mut sols, &graph, init, *w, nbs);
             sols
         })
