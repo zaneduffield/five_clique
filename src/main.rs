@@ -45,10 +45,6 @@ impl LowerAsciiCharset {
     fn union(&mut self, other: Self) {
         self.0 |= other.0
     }
-
-    fn add(&mut self, b: u8) {
-        self.0 |= 1 << b;
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
@@ -73,14 +69,6 @@ impl<const N: usize> Sentence<N> {
         self.len += 1;
 
         self.charset.union(w.charset);
-    }
-
-    fn add2(&mut self, w: Word, c: LowerAsciiCharset) {
-        let i = (self.len as usize) * WLEN;
-        self.words[i..i + WLEN].copy_from_slice(&w);
-        self.len += 1;
-
-        self.charset.union(c);
     }
 
     fn shares_chars_with(&self, c: LowerAsciiCharset) -> bool {
