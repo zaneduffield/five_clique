@@ -1,8 +1,10 @@
-use std::io::BufRead;
+mod filter_vec;
 
+use filter_vec::filter_vec;
 use itertools::Itertools;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::io::BufRead;
 
 const WLEN: usize = 5;
 const SLEN: usize = 5;
@@ -24,7 +26,7 @@ impl From<Word> for WordWithCharset {
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
-struct LowerAsciiCharset(u32);
+pub struct LowerAsciiCharset(u32);
 impl From<Word> for LowerAsciiCharset {
     fn from(w: Word) -> Self {
         let mut chars = 0;
@@ -69,10 +71,6 @@ impl<const N: usize> Sentence<N> {
         self.len += 1;
 
         self.charset.union(w.charset);
-    }
-
-    fn shares_chars_with(&self, c: LowerAsciiCharset) -> bool {
-        self.charset.intersects(c)
     }
 
     fn words(&self) -> Vec<Word> {
@@ -151,15 +149,19 @@ fn find_sols<const N: usize>(
     graph: &WordGraph,
     cur_sol: Sentence<N>,
     last: Word,
-    nbs: &[WordWithCharset],
+    nbs: &(Vec<Word>, Vec<LowerAsciiCharset>),
 ) {
-    let pos = nbs.partition_point(|nb| nb.word[0] < last[0]);
-    for nb in &nbs[pos..] {
-        if cur_sol.shares_chars_with(nb.charset) {
-            continue;
-        }
+    let nbs = {
+        let pos = nbs.0.partition_point(|nb| nb[0] < last[0]);
+        (&nbs.0[pos..], &nbs.1[pos..])
+    };
+
+    let to_explore = filter_vec(nbs.1, cur_sol.charset);
+
+    for idx in to_explore {
+        let word = nbs.0[idx as usize];
         let mut sol = cur_sol;
-        sol.add(*nb);
+        sol.add(word.into());
         if sol.len >= (N / WLEN) as u8 {
             sols.push(sol);
         } else {
@@ -167,32 +169,30 @@ fn find_sols<const N: usize>(
                 sols,
                 graph,
                 sol,
-                nb.word,
-                graph.get(&nb.word).expect("word not found in graph"),
+                word,
+                graph.get(&word).expect("word not found in graph"),
             );
         }
     }
 }
 
-type WordGraph = FxHashMap<Word, Vec<WordWithCharset>>;
+type WordGraph = FxHashMap<Word, (Vec<Word>, Vec<LowerAsciiCharset>)>;
 fn build_graph(words: Vec<Word>) -> WordGraph {
     words
         .par_iter()
         .map(|w| {
             let charset = LowerAsciiCharset::from(*w);
-            (
-                *w,
-                words
-                    .iter()
-                    .copied()
-                    .map(|w| WordWithCharset {
-                        word: w,
-                        charset: LowerAsciiCharset::from(w),
-                    })
-                    .filter(|w2| !charset.intersects(w2.charset))
-                    .sorted_by_key(|w| w.word)
-                    .collect(),
-            )
+            let words: Vec<WordWithCharset> = words
+                .iter()
+                .copied()
+                .map(WordWithCharset::from)
+                .filter(|w2| !charset.intersects(w2.charset))
+                .sorted_by_key(|w| w.word)
+                .collect();
+
+            let uwords = words.iter().map(|w| w.word).collect();
+            let charsets = words.iter().map(|w| w.charset).collect();
+            (*w, (uwords, charsets))
         })
         .collect()
 }
