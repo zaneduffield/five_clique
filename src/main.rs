@@ -10,22 +10,8 @@ const WLEN: usize = 5;
 const SLEN: usize = 5;
 
 type Word = [u8; WLEN];
-#[derive(Clone, Copy)]
-struct WordWithCharset {
-    word: Word,
-    charset: LowerAsciiCharset,
-}
 
-impl From<Word> for WordWithCharset {
-    fn from(word: Word) -> Self {
-        WordWithCharset {
-            word,
-            charset: word.into(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct LowerAsciiCharset(u32);
 impl From<Word> for LowerAsciiCharset {
     fn from(w: Word) -> Self {
@@ -49,39 +35,27 @@ impl LowerAsciiCharset {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 struct Sentence<const N: usize> {
-    words: [u8; N],
+    words: [Option<Word>; N],
     len: u8,
-    charset: LowerAsciiCharset,
 }
 
 impl<const N: usize> Sentence<N> {
     fn new() -> Sentence<N> {
         Sentence {
             len: 0,
-            words: [0; N],
-            charset: LowerAsciiCharset::default(),
+            words: [None; N],
         }
     }
 
-    fn add(&mut self, w: WordWithCharset) {
-        let i = (self.len as usize) * WLEN;
-        self.words[i..i + WLEN].copy_from_slice(&w.word);
+    fn add(&mut self, w: Word) {
+        self.words[self.len as usize] = Some(w);
         self.len += 1;
-
-        self.charset.union(w.charset);
-    }
-
-    fn words(&self) -> Vec<Word> {
-        self.words
-            .chunks_exact(WLEN)
-            .map(|w| w.try_into().unwrap())
-            .collect()
     }
 
     fn as_string(&self) -> String {
-        self.words().into_iter().map(show).join(" ")
+        self.words.into_iter().flatten().map(show).join(" ")
     }
 }
 
@@ -91,8 +65,32 @@ where
 {
     fn from(words: I) -> Self {
         let mut out = Self::new();
-        words.into_iter().for_each(|w| out.add(w.into()));
+        words.into_iter().for_each(|w| out.add(w));
         out
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+struct CharsetSentence<const N: usize> {
+    words: [LowerAsciiCharset; N],
+    len: u8,
+    charset: LowerAsciiCharset,
+}
+
+impl<const N: usize> CharsetSentence<N> {
+    fn new() -> CharsetSentence<N> {
+        CharsetSentence {
+            len: 0,
+            words: [LowerAsciiCharset::default(); N],
+            charset: LowerAsciiCharset::default(),
+        }
+    }
+
+    fn add(&mut self, c: LowerAsciiCharset) {
+        self.words[self.len as usize] = c;
+        self.len += 1;
+
+        self.charset.union(c);
     }
 }
 
@@ -103,12 +101,12 @@ fn show(mut w: Word) -> String {
 
 fn expand_anagrams<const N: usize>(
     sols: &mut Vec<Sentence<N>>,
-    anagram_map: &FxHashMap<Word, Vec<Word>>,
-    sol: Sentence<N>,
+    anagram_map: &FxHashMap<LowerAsciiCharset, Vec<Word>>,
+    sol: CharsetSentence<N>,
 ) {
     let mut a_idxs = vec![0; sol.len.into()];
     let agrams = sol
-        .words()
+        .words
         .iter()
         .map(|w| anagram_map.get(w).unwrap())
         .collect_vec();
@@ -145,54 +143,51 @@ fn expand_anagrams<const N: usize>(
 }
 
 fn find_sols<const N: usize>(
-    sols: &mut Vec<Sentence<N>>,
+    sols: &mut Vec<CharsetSentence<N>>,
     graph: &WordGraph,
-    cur_sol: Sentence<N>,
-    last: Word,
-    nbs: &(Vec<Word>, Vec<LowerAsciiCharset>),
+    cur_sol: CharsetSentence<N>,
+    nbs: &[LowerAsciiCharset],
 ) {
-    let nbs = {
-        let pos = nbs.0.partition_point(|nb| nb[0] < last[0]);
-        (&nbs.0[pos..], &nbs.1[pos..])
-    };
+    let to_explore = filter_vec(nbs, cur_sol.charset);
+    if to_explore.is_empty() {
+        return;
+    }
 
-    let to_explore = filter_vec(nbs.1, cur_sol.charset);
-
-    for idx in to_explore {
-        let word = nbs.0[idx as usize];
+    let sols_to_explore = to_explore.into_iter().map(|c| {
         let mut sol = cur_sol;
-        sol.add(word.into());
-        if sol.len >= (N / WLEN) as u8 {
-            sols.push(sol);
-        } else {
+        sol.add(c);
+        (c, sol)
+    });
+
+    if cur_sol.len + 1 >= N as u8 {
+        sols.extend(sols_to_explore.map(|(_, s)| s));
+    } else {
+        sols_to_explore.for_each(|(c, sol)| {
             find_sols(
                 sols,
                 graph,
                 sol,
-                word,
-                graph.get(&word).expect("word not found in graph"),
+                graph.get(&c).expect("charset not found in graph"),
             );
-        }
+        });
     }
 }
 
-type WordGraph = FxHashMap<Word, (Vec<Word>, Vec<LowerAsciiCharset>)>;
+type WordGraph = FxHashMap<LowerAsciiCharset, Vec<LowerAsciiCharset>>;
 fn build_graph(words: Vec<Word>) -> WordGraph {
     words
         .par_iter()
-        .map(|w| {
-            let charset = LowerAsciiCharset::from(*w);
-            let words: Vec<WordWithCharset> = words
+        .map(|&w| {
+            let charset = LowerAsciiCharset::from(w);
+            let words: Vec<LowerAsciiCharset> = words
                 .iter()
-                .copied()
-                .map(WordWithCharset::from)
-                .filter(|w2| !charset.intersects(w2.charset))
-                .sorted_by_key(|w| w.word)
+                // take only words which are alphabetically after this word
+                // (only check first char because if equal then they would fail the later charset filter anyway)
+                .filter(|w2| w2[0] > w[0])
+                .map(|w2| LowerAsciiCharset::from(*w2))
+                .filter(|c| !charset.intersects(*c))
                 .collect();
-
-            let uwords = words.iter().map(|w| w.word).collect();
-            let charsets = words.iter().map(|w| w.charset).collect();
-            (*w, (uwords, charsets))
+            (w.into(), words)
         })
         .collect()
 }
@@ -263,22 +258,27 @@ fn main() {
     eprintln!(" done!");
 
     eprint!("Finding solutions modulo anagram...");
-    let sols: Vec<Sentence<{ SLEN * WLEN }>> = graph
+    let sols: Vec<CharsetSentence<SLEN>> = graph
         .par_iter()
-        .flat_map(|(w, nbs)| {
+        .map(|(w, nbs)| {
             let mut sols = vec![];
-            let mut init = Sentence::<{ SLEN * WLEN }>::new();
-            init.add((*w).into());
-            find_sols(&mut sols, &graph, init, *w, nbs);
+            let mut init = CharsetSentence::<SLEN>::new();
+            init.add(*w);
+            find_sols(&mut sols, &graph, init, nbs);
             sols
         })
+        .flatten()
         .collect();
     eprintln!(" done!");
 
     eprint!("Expanding anagram solutions...");
     let mut sols_with_agrams = vec![];
+    let anagram_map_by_charset: FxHashMap<LowerAsciiCharset, Vec<Word>> = anagram_map
+        .into_iter()
+        .map(|(k, v)| (k.into(), v))
+        .collect();
     for sol in sols {
-        expand_anagrams(&mut sols_with_agrams, &anagram_map, sol);
+        expand_anagrams::<SLEN>(&mut sols_with_agrams, &anagram_map_by_charset, sol);
     }
     eprintln!(" done!");
 

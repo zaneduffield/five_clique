@@ -8,7 +8,7 @@ use std::arch::x86_64::*;
 
 use std::mem::transmute;
 
-pub fn filter_vec_avx2(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Vec<u32> {
+pub fn filter_vec_avx2(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Vec<LowerAsciiCharset> {
     let mut output = Vec::with_capacity(input.len());
     let num_words = input.len() / NUM_LANES;
     unsafe {
@@ -24,8 +24,9 @@ pub fn filter_vec_avx2(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) 
     // don't forget the excess
     for i in 0..(input.len() % NUM_LANES) {
         let idx = num_words * NUM_LANES + i;
-        if !charset.intersects(input[idx]) {
-            output.push(idx as u32);
+        let c = input[idx];
+        if !charset.intersects(c) {
+            output.push(c);
         }
     }
 
@@ -35,21 +36,18 @@ pub fn filter_vec_avx2(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) 
 unsafe fn filter_vec_avx2_aux(
     mut input: *const __m256i,
     charset: LowerAsciiCharset,
-    output: *mut u32,
+    output: *mut LowerAsciiCharset,
     num_words: usize,
 ) -> usize {
     let mut output_tail = output;
     let charset_simd = _mm256_set1_epi32(transmute(charset));
-    let mut ids = from_u32x8([0, 1, 2, 3, 4, 5, 6, 7]);
-    const SHIFT: __m256i = from_u32x8([NUM_LANES as u32; NUM_LANES]);
     for _ in 0..num_words {
         let word = _mm256_loadu_si256(input);
         let keeper_bitset = compute_filter_bitset(word, charset_simd);
         let added_len = keeper_bitset.count_ones();
-        let filtered_doc_ids = compact(ids, keeper_bitset);
-        _mm256_storeu_si256(output_tail as *mut __m256i, filtered_doc_ids);
+        let compacted_output = compact(word, keeper_bitset);
+        _mm256_storeu_si256(output_tail as *mut __m256i, compacted_output);
         output_tail = output_tail.offset(added_len as isize);
-        ids = _mm256_add_epi32(ids, SHIFT);
         input = input.offset(1);
     }
     output_tail.offset_from(output) as usize

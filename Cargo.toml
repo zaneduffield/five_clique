@@ -12,3 +12,5 @@ debug = 1
 itertools = "0.10.2"
 rustc-hash = "1.1.0"
 rayon = "1.5.3"
+
+[features]

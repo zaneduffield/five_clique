@@ -2,7 +2,10 @@ mod filter_vec_avx2;
 
 use crate::LowerAsciiCharset;
 
-pub fn filter_vec(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Vec<u32> {
+pub fn filter_vec(
+    input: &[LowerAsciiCharset],
+    charset: LowerAsciiCharset,
+) -> Vec<LowerAsciiCharset> {
     // For some reason, the avx2 version of this is much slower on windows for me, but
     // on linux (via WSL2) it is a bit faster, and it was a fun exercise.
     #[cfg(not(windows))]
@@ -16,17 +19,22 @@ pub fn filter_vec(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Ve
     filter_vec_scalar(input, charset)
 }
 
-pub fn filter_vec_scalar(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Vec<u32> {
+pub fn filter_vec_scalar(
+    input: &[LowerAsciiCharset],
+    charset: LowerAsciiCharset,
+) -> Vec<LowerAsciiCharset> {
     input
         .iter()
-        .enumerate()
-        .filter(|(_, c)| !c.intersects(charset))
-        .map(|(i, _)| i as u32)
+        .copied()
+        .filter(|c| !c.intersects(charset))
         .collect()
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
-unsafe fn filter_vec_avx2(input: &[LowerAsciiCharset], charset: LowerAsciiCharset) -> Vec<u32> {
+unsafe fn filter_vec_avx2(
+    input: &[LowerAsciiCharset],
+    charset: LowerAsciiCharset,
+) -> Vec<LowerAsciiCharset> {
     filter_vec_avx2::filter_vec_avx2(input, charset)
 }
