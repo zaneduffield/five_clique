@@ -49,9 +49,10 @@ impl<const N: usize> Sentence<N> {
         }
     }
 
-    fn add(&mut self, w: Word) {
+    fn add(mut self, w: Word) -> Self {
         self.words[self.len as usize] = Some(w);
         self.len += 1;
+        self
     }
 
     fn as_string(&self) -> String {
@@ -65,7 +66,7 @@ where
 {
     fn from(words: I) -> Self {
         let mut out = Self::new();
-        words.into_iter().for_each(|w| out.add(w));
+        words.into_iter().for_each(|w| out = out.add(w));
         out
     }
 }
@@ -86,11 +87,12 @@ impl<const N: usize> CharsetSentence<N> {
         }
     }
 
-    fn add(&mut self, c: LowerAsciiCharset) {
+    fn add(mut self, c: LowerAsciiCharset) -> Self {
         self.words[self.len as usize] = c;
         self.len += 1;
 
         self.charset.union(c);
+        self
     }
 }
 
@@ -153,11 +155,7 @@ fn find_sols<const N: usize>(
         return;
     }
 
-    let sols_to_explore = nbs.iter().map(|&c| {
-        let mut sol = cur_sol;
-        sol.add(c);
-        (c, sol)
-    });
+    let sols_to_explore = nbs.iter().map(|&c| (c, cur_sol.add(c)));
 
     if cur_sol.len + 1 >= N as u8 {
         sols.extend(sols_to_explore.map(|(_, s)| s));
@@ -250,8 +248,7 @@ fn main() {
         .par_iter()
         .map(|(w, nbs)| {
             let mut sols = vec![];
-            let mut init = CharsetSentence::<SLEN>::new();
-            init.add(*w);
+            let init = CharsetSentence::<SLEN>::new().add(*w);
             find_sols(&mut sols, init, *w, nbs);
             sols
         })
