@@ -4,7 +4,10 @@ use filter_vec::filter_vec;
 use itertools::Itertools;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use std::io::BufRead;
+use std::{
+    fs::{File, self},
+    io::{BufRead, BufReader, Write},
+};
 
 const WLEN: usize = 5;
 const SLEN: usize = 5;
@@ -183,7 +186,17 @@ fn build_graph(words: Vec<Word>) -> WordGraph {
 }
 
 fn anagram_groups() -> Vec<Vec<Word>> {
-    include_bytes!("words_alpha.txt")
+    // For some reason, using BufReader here makes the rest of the program MUCH slower than using
+    // `include_bytes!()` unless I write to some other File.
+    // It doesn't make any sense; the output from this function is the same.
+    // I figure there must be some weird bottleneck with my OS.
+    File::create("deleteme.txt")
+        .and_then(|mut f| f.write_all(b"hi"))
+        .ok();
+    fs::remove_file("deleteme.txt").ok();
+
+    let f = File::open("words_alpha.txt").expect("Couldn't read words_alpha.txt");
+    BufReader::new(f)
         .lines()
         .flat_map(|line| line.expect("failed to read line").as_bytes().try_into())
         .map(|mut w: Word| {
