@@ -176,9 +176,6 @@ fn build_graph(words: Vec<Word>) -> WordGraph {
             let charset = LowerAsciiCharset::from(w);
             let words: Vec<LowerAsciiCharset> = words
                 .iter()
-                // take only words which are alphabetically after this word
-                // (only check first char because if equal then they would fail the later charset filter anyway)
-                .filter(|w2| w2[0] > w[0])
                 .map(|w2| LowerAsciiCharset::from(*w2))
                 .filter(|c| !charset.intersects(*c))
                 .collect();
