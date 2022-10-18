@@ -190,7 +190,7 @@ fn anagram_groups() -> Vec<Vec<Word>> {
             w.make_ascii_lowercase();
 
             // It's more efficient to shift all the characters to be based on 'a' now and then undo it right at the end.
-            // Otherwise we would be doing this shift in the hottest path of the program (`Sentence<N>::shares_chars_with`)
+            // Otherwise we would be doing this shift in the hottest path of the program (`LowerAsciiCharset::intersects`)
             w.iter_mut().for_each(|b| *b -= b'a');
 
             w
