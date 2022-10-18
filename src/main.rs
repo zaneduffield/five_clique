@@ -144,16 +144,16 @@ fn expand_anagrams<const N: usize>(
 
 fn find_sols<const N: usize>(
     sols: &mut Vec<CharsetSentence<N>>,
-    graph: &WordGraph,
     cur_sol: CharsetSentence<N>,
+    last_added: LowerAsciiCharset,
     nbs: &[LowerAsciiCharset],
 ) {
-    let to_explore = filter_vec(nbs, cur_sol.charset);
-    if to_explore.is_empty() {
+    let nbs = filter_vec(nbs, cur_sol.charset, last_added);
+    if nbs.is_empty() {
         return;
     }
 
-    let sols_to_explore = to_explore.into_iter().map(|c| {
+    let sols_to_explore = nbs.iter().map(|&c| {
         let mut sol = cur_sol;
         sol.add(c);
         (c, sol)
@@ -163,12 +163,7 @@ fn find_sols<const N: usize>(
         sols.extend(sols_to_explore.map(|(_, s)| s));
     } else {
         sols_to_explore.for_each(|(c, sol)| {
-            find_sols(
-                sols,
-                graph,
-                sol,
-                graph.get(&c).expect("charset not found in graph"),
-            );
+            find_sols(sols, sol, c, &nbs);
         });
     }
 }
@@ -193,14 +188,10 @@ fn build_graph(words: Vec<Word>) -> WordGraph {
 }
 
 fn anagram_groups() -> Vec<Vec<Word>> {
-    include_bytes!("words_five.txt")
+    include_bytes!("words_alpha.txt")
         .lines()
-        .map(|line| {
-            let mut w: Word = line
-                .expect("failed to read line")
-                .as_bytes()
-                .try_into()
-                .expect("line is not the right length in bytes");
+        .flat_map(|line| line.expect("failed to read line").as_bytes().try_into())
+        .map(|mut w: Word| {
             w.make_ascii_lowercase();
 
             // It's more efficient to shift all the characters to be based on 'a' now and then undo it right at the end.
@@ -264,7 +255,7 @@ fn main() {
             let mut sols = vec![];
             let mut init = CharsetSentence::<SLEN>::new();
             init.add(*w);
-            find_sols(&mut sols, &graph, init, nbs);
+            find_sols(&mut sols, init, *w, nbs);
             sols
         })
         .flatten()
