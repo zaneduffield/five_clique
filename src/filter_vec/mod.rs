@@ -1,3 +1,4 @@
+#[cfg(not(windows))]
 mod filter_vec_avx2;
 
 use crate::LowerAsciiCharset;
@@ -32,6 +33,7 @@ pub fn filter_vec_scalar(
         .collect()
 }
 
+#[cfg(not(windows))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 unsafe fn filter_vec_avx2(
